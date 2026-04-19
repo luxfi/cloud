@@ -15,16 +15,14 @@ RUN pnpm install --frozen-lockfile || pnpm install
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps ./apps
-COPY --from=deps /app/packages ./packages
 COPY . .
-RUN pnpm build
+RUN pnpm -C apps/web build
 
-FROM base AS runner
-ENV NODE_ENV=production
-COPY --from=builder /app/apps/web/.next ./apps/web/.next
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=builder /app/apps/web/public ./apps/web/public
-COPY --from=builder /app/apps/web/package.json ./apps/web/
-COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/web/.next/standalone ./
+COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@luxfi/cloud-web", "start"]
+CMD ["node", "apps/web/server.js"]
