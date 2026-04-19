@@ -1,25 +1,29 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: cloud-web
-  namespace: lux
+  name: cloud
+  namespace: lux-cloud
   annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
+  labels:
+    app.kubernetes.io/part-of: lux-cloud
 spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - lux.cloud
-      secretName: cloud-web-tls
+  ingressClassName: ingress
   rules:
-    - host: lux.cloud
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: cloud-web
-                port:
-                  number: 80
+  - host: lux.cloud
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: cloud, port: { number: 80 } } }
+  - host: www.lux.cloud
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend: { service: { name: cloud, port: { number: 80 } } }
+  tls:
+  - hosts: [lux.cloud, www.lux.cloud]
+    secretName: cloud-lux-tls
