@@ -2,66 +2,69 @@
 
 ## Purpose
 
-Lux Cloud is the unified cloud entry for the Lux ecosystem. It is a white-label deployment pattern over the Hanzo platform, branded for Lux users.
+`lux.cloud` is the unified marketing + dashboard entry for the Lux ecosystem.
 
-Domain: `lux.cloud`
+## Stack
 
-## Scope
+- **Vite 8** + React 19 + wouter
+- **@hanzo/gui** for shared primitives (when tamagui provider is wired later)
+- **hanzoai/spa** (Go) as static server — scratch-based image, ~5 MB
+- Pure CSS (`src/styles.css`) for monochrome dark theme + prismatic accents
+- **No Next.js**, no SSR, no Node runtime in production
 
-- **AI model serving** — GPU-backed inference, training, fine-tuning
-- **Blockchain node hosting** — validator, archive, RPC, bootnodes
-- **DeFi tooling** — DEX, bridges, liquidity, oracle feeds
-- **White-label chain deployment** — one-click L1/L2 launches on Lux DOKS
-
-## Subdomain Map (production)
-
-| Hostname | Serves | Namespace | Image |
-|----------|--------|-----------|-------|
-| `lux.cloud` | Marketing/dashboard | `lux-cloud` | `ghcr.io/luxfi/cloud:latest` |
-| `www.lux.cloud` | Same as root | `lux-cloud` | `ghcr.io/luxfi/cloud:latest` |
-| `api.lux.cloud` | Platform API | `hanzo` | shared Hanzo Cloud API |
-| `console.lux.cloud` | Operator console | `hanzo` | `ghcr.io/luxfi/console:latest` |
-| `id.lux.cloud` | OAuth/OIDC (alias of lux.id) | `hanzo` | `ghcr.io/luxfi/id:latest` |
-| `kms.lux.cloud` | Secrets (alias of kms.lux.network) | `hanzo` | `ghcr.io/luxfi/kms:latest` |
-| `mpc.lux.cloud` | MPC wallets (alias of mpc.lux.network) | `lux-mpc` | `ghcr.io/luxfi/mpc:latest` |
-| `nodes.lux.cloud` | Node deploy (alias of web3.hanzo.ai) | `bootnode` | `ghcr.io/bootnode/bootnode:web-latest` |
-
-Shared Hanzo platform services (cloud-api, console, hanzo-login, kms) are multi-tenant and serve hanzo.ai, lux.cloud, zoo.ngo, pars.id simultaneously — deliberately NOT duplicated per brand.
-
-## Infrastructure
-
-- **Cluster:** DOKS `do-sfo3-lux-k8s` (Lux-owned)
-- **Ingress:** `hanzo-ingress` Traefik DaemonSet in `lux-system` ns
-- **LB:** DO LB `134.199.138.27` (`lux-ingress`, size_unit=3, externalTrafficPolicy=Cluster)
-- **DNS:** Cloudflare zone `6a015a77307b6b6b355fb69c4a3de548`, all records CF-proxied
-- **TLS:** cert-manager letsencrypt-prod
-- **CI:** `.github/workflows/publish.yml` builds amd64+arm64 via GHA, pushes to `ghcr.io/luxfi/cloud`
-
-## NetworkPolicy Gotcha (hanzo ns)
-
-The `allow-ingress-controller` NP in `hanzo` ns selects source pods by `app.kubernetes.io/name: ingress-nginx`, but the ingress controller is Traefik on `hostNetwork: true`. Cilium doesn't map hostNetwork traffic to a pod identity matching that label.
-
-Workaround (already in place): `allow-all-to-cloud` NP in `hanzo` ns permitting all ingress to `app in (cloud-api, console, hanzo-login, kms)`.
-
-For new `lux-cloud`-ns apps: include an `allow-ingress` NP with `ingress: [{}]` (see `k8s/deploy.yaml`).
-
-## Repo Layout
+## Layout
 
 ```
-apps/
-  web/       Next.js marketing + dashboard (@luxfi/cloud-web)
-  api/       Go API stub
-  billing/   billing adapter
-  docs/      docs site
-packages/
-  brand/     Lux brand tokens (@luxfi/cloud-brand)
-  config/    shared config (@luxfi/cloud-config)
-  ui/        UI primitives (@luxfi/cloud-ui, thin wrapper around @hanzo/gui)
-k8s/
-  deploy.yaml   Namespace + Deployment + Service + NP
-  ingress.yaml  Ingress with TLS for lux.cloud, www.lux.cloud
-.github/
-  workflows/publish.yml  multi-arch build+push to ghcr.io/luxfi/cloud
-Dockerfile    multi-stage, pnpm-based, standalone Next output
-compose.yml   local dev
+apps/web/
+  index.html        # Static entry, title + OG tags baked in
+  vite.config.ts    # Vite 8
+  tsconfig.json
+  package.json
+  public/
+    logo.svg        # Upside-down triangle Lux mark
+  src/
+    main.tsx        # React root
+    App.tsx         # Router (wouter)
+    styles.css      # Monochrome dark palette
+    components/
+      Header.tsx    # Sticky header w/ Try Lux dropdown
+      Footer.tsx
+      Logo.tsx      # ▼ mark + wordmark intro/collapse
+      TryLux.tsx    # Web3 quick-launch (Node/Validator/Bridge/DEX/…)
+    pages/
+      HomePage.tsx
+      ServicesPage.tsx
+      DashboardPage.tsx
 ```
+
+## Build
+
+```
+pnpm install
+pnpm -C apps/web build    # → apps/web/dist
+```
+
+## Docker
+
+```dockerfile
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY . .
+RUN pnpm install --frozen-lockfile && pnpm -C apps/web build
+
+FROM ghcr.io/hanzoai/spa
+COPY --from=build /app/apps/web/dist /public
+```
+
+Runs on port 3000. SPA mode (all routes serve `index.html`). Pre-compressed Brotli+gzip. Cache-Control correct for hashed assets vs `index.html`.
+
+## Brand
+
+- **Monochrome dark**: `#000` bg, `#f5f5f5` fg, `rgba(255,255,255,0.08)` borders (subtle, never stark white)
+- **Prismatic accents**: on hero "onchain" gradient only — matches lux.network aesthetic
+- **Try Lux** dropdown top-right: Node · Validator · Bridge · DEX · Explorer · Wallet · Chain · Status
+- **Logo animation**: wordmark shows for 2.5s on load, collapses to just the ▼ mark; re-expands on hover
+
+## Deploy
+
+CI builds from `main` → `ghcr.io/luxfi/cloud-web:latest` → rolled out on `do-sfo3-lux-k8s` `lux-cloud` namespace. Ingress `lux.cloud` + `www.lux.cloud` → `cloud` service port 3000.
