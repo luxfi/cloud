@@ -2,102 +2,66 @@
 
 ## Purpose
 
-Lux Cloud is the AI + Web3 cloud platform for the Lux ecosystem. It is a white-label deployment of the Hanzo platform, branded for Lux users.
+Lux Cloud is the unified cloud entry for the Lux ecosystem. It is a white-label deployment pattern over the Hanzo platform, branded for Lux users.
 
 Domain: `lux.cloud`
 
 ## Scope
 
-Unlike Hanzo (general AI infra), Lux Cloud focuses on:
+- **AI model serving** — GPU-backed inference, training, fine-tuning
+- **Blockchain node hosting** — validator, archive, RPC, bootnodes
+- **DeFi tooling** — DEX, bridges, liquidity, oracle feeds
+- **White-label chain deployment** — one-click L1/L2 launches on Lux DOKS
 
-1. **AI model serving** — GPU-backed inference, training, fine-tuning marketplace
-2. **Blockchain node hosting** — validator nodes, archive nodes, RPC endpoints, bootnodes
-3. **DeFi tooling** — hosted DEX, bridges, liquidity provisioning, oracle feeds
-4. **White-label chain deployment** — one-click L1/L2 launches on Lux infrastructure
+## Subdomain Map (production)
 
-## Architecture
+| Hostname | Serves | Namespace | Image |
+|----------|--------|-----------|-------|
+| `lux.cloud` | Marketing/dashboard | `lux-cloud` | `ghcr.io/luxfi/cloud:latest` |
+| `www.lux.cloud` | Same as root | `lux-cloud` | `ghcr.io/luxfi/cloud:latest` |
+| `api.lux.cloud` | Platform API | `hanzo` | shared Hanzo Cloud API |
+| `console.lux.cloud` | Operator console | `hanzo` | `ghcr.io/luxfi/console:latest` |
+| `id.lux.cloud` | OAuth/OIDC (alias of lux.id) | `hanzo` | `ghcr.io/luxfi/id:latest` |
+| `kms.lux.cloud` | Secrets (alias of kms.lux.network) | `hanzo` | `ghcr.io/luxfi/kms:latest` |
+| `mpc.lux.cloud` | MPC wallets (alias of mpc.lux.network) | `lux-mpc` | `ghcr.io/luxfi/mpc:latest` |
+| `nodes.lux.cloud` | Node deploy (alias of web3.hanzo.ai) | `bootnode` | `ghcr.io/bootnode/bootnode:web-latest` |
 
-Lux Cloud is a thin orchestration layer over existing OSS services:
+Shared Hanzo platform services (cloud-api, console, hanzo-login, kms) are multi-tenant and serve hanzo.ai, lux.cloud, zoo.ngo, pars.id simultaneously — deliberately NOT duplicated per brand.
+
+## Infrastructure
+
+- **Cluster:** DOKS `do-sfo3-lux-k8s` (Lux-owned)
+- **Ingress:** `hanzo-ingress` Traefik DaemonSet in `lux-system` ns
+- **LB:** DO LB `134.199.138.27` (`lux-ingress`, size_unit=3, externalTrafficPolicy=Cluster)
+- **DNS:** Cloudflare zone `6a015a77307b6b6b355fb69c4a3de548`, all records CF-proxied
+- **TLS:** cert-manager letsencrypt-prod
+- **CI:** `.github/workflows/publish.yml` builds amd64+arm64 via GHA, pushes to `ghcr.io/luxfi/cloud`
+
+## NetworkPolicy Gotcha (hanzo ns)
+
+The `allow-ingress-controller` NP in `hanzo` ns selects source pods by `app.kubernetes.io/name: ingress-nginx`, but the ingress controller is Traefik on `hostNetwork: true`. Cilium doesn't map hostNetwork traffic to a pod identity matching that label.
+
+Workaround (already in place): `allow-all-to-cloud` NP in `hanzo` ns permitting all ingress to `app in (cloud-api, console, hanzo-login, kms)`.
+
+For new `lux-cloud`-ns apps: include an `allow-ingress` NP with `ingress: [{}]` (see `k8s/deploy.yaml`).
+
+## Repo Layout
 
 ```
-                lux.cloud (apps/web)
-                       |
-                   apps/api
-                       |
-   +-----------+-------+---------+-----------+-----------+
-   |           |                 |           |           |
-@hanzo/iam  @hanzo/kms  @hanzo/commerce  @hanzo/gateway  @hanzo/insights
-(lux.id)    (secrets)   (billing)        (api.lux.cloud) (analytics)
-   |           |                 |           |
-   +-----------+-----------------+-----------+
-                       |
-              Lux OSS services
-   +-----------+-------+---------+-----------+-----------+
-   |           |           |           |           |
-broker        cex         dex         mpc         bank
-(routing)   (exchange)  (orderbook) (custody)   (fiat rails)
+apps/
+  web/       Next.js marketing + dashboard (@luxfi/cloud-web)
+  api/       Go API stub
+  billing/   billing adapter
+  docs/      docs site
+packages/
+  brand/     Lux brand tokens (@luxfi/cloud-brand)
+  config/    shared config (@luxfi/cloud-config)
+  ui/        UI primitives (@luxfi/cloud-ui)
+k8s/
+  deploy.yaml   Namespace + Deployment + Service + NP
+  ingress.yaml  Ingress with TLS for lux.cloud, www.lux.cloud
+.github/
+  workflows/publish.yml  multi-arch build+push to ghcr.io/luxfi/cloud
+Dockerfile    multi-stage, pnpm-based, standalone Next output
+compose.yml   local dev
 ```
-
-## Apps
-
-### apps/web
-Next.js 14 dashboard. Renders at `lux.cloud`. Pages:
-- `/` — marketing / landing
-- `/dashboard` — logged-in user home
-- `/services` — AI + node + DeFi catalog
-- `/billing` — subscription + usage (via `@hanzo/commerce`)
-- `/account` — profile, teams, API keys (via `@hanzo/iam`)
-
-### apps/api
-Backend. Thin proxy to Hanzo services + Lux OSS services via gateway.
-
-### apps/billing
-Server-side billing workflows. Imports `@hanzo/commerce` for subscription lifecycle, metering, credits.
-
-### apps/docs
-Docs site at `docs.lux.cloud`. Fumadocs or similar.
-
-## Packages
-
-- `packages/brand` — Lux design tokens (colors, typography, logo SVGs)
-- `packages/config` — shared `tsconfig.json`, eslint rules
-- `packages/ui` — Lux-branded React components re-exporting `@hanzo/ui`
-
-## Auth Flow
-
-OIDC authorization_code + PKCE against `lux.id` (a Hanzo IAM deployment).
-
-- Client IDs: `lux-cloud-web`, `lux-cloud-api`
-- Claims: `sub` (user id), `owner` (org id), `roles`
-- Gateway injects: `X-User-Id`, `X-Org-Id`, `X-Roles`
-
-## Bootnode Integration
-
-Lux Cloud exposes node hosting as a first-class service:
-- User picks network (mainnet, testnet, devnet)
-- Provisions a validator or RPC node via `lux/node` binary
-- Billed per GB/hour via `@hanzo/commerce` metering
-- Secrets (validator keys) stored in `@hanzo/kms`
-
-## Clusters
-
-| Env | Cluster context | Purpose |
-|-----|-----------------|---------|
-| mainnet | `do-sfo3-lux-k8s` | Production Lux Cloud |
-| testnet | `do-sfo3-lux-test-k8s` | Public testnet |
-| devnet  | `do-sfo3-lux-dev-k8s` | Internal dev |
-
-## Image
-
-`ghcr.io/luxfi/cloud:v{semver}` — multi-arch (amd64 + arm64), no QEMU, native runners.
-
-## CI/CD
-
-Push to `main` → GHA runs lint + typecheck + build → auto-bump semver → push image to GHCR → dispatch to operator for progressive rollout (dev → test → main).
-
-## Rules
-
-- Never push to GAR (that's Liquidity's registry).
-- Never pull in `ava-labs` or `go-ethereum` — use `luxfi/*`.
-- Hanzo services are dependencies; do not fork them here.
-- Secrets always via `@hanzo/kms`. Never env files in prod.
