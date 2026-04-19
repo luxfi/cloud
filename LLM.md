@@ -56,7 +56,7 @@ apps/
 packages/
   brand/     Lux brand tokens (@luxfi/cloud-brand)
   config/    shared config (@luxfi/cloud-config)
-  ui/        UI primitives (@luxfi/cloud-ui)
+  ui/        UI primitives (@luxfi/cloud-ui, thin wrapper around @hanzo/gui)
 k8s/
   deploy.yaml   Namespace + Deployment + Service + NP
   ingress.yaml  Ingress with TLS for lux.cloud, www.lux.cloud

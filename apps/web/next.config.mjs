@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
-  transpilePackages: ["@luxfi/cloud-brand", "@luxfi/cloud-config", "@luxfi/cloud-ui"],
+  transpilePackages: ["@hanzo/gui", "@luxfi/cloud-brand", "@luxfi/cloud-config", "@luxfi/cloud-ui"],
 };
 
 export default nextConfig;
